@@ -1,0 +1,135 @@
+# open5gs-swap-events pipeline:
+#
+# - Pull requests and pushes to main run test and helm-lint.
+# - A tag vX.Y.Z (e.g. v1.0.0) also publishes, to Docker Hub (namespace vars.DOCKERHUB_NAMESPACE):
+#     image  docker.io/<namespace>/open5gs-swap-events:v1.0.0 (also the short SHA and latest)
+#     chart  oci://registry-1.docker.io/<namespace>/open5gs-swap-events-chart   1.0.0
+#   and creates the GitHub Release v1.0.0 with generated notes.
+#
+# Needs the organization secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN, and the variable DOCKERHUB_NAMESPACE.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: open5gs-swap-events
+  CHART_DIR: charts/open5gs-swap-events
+  HELM_VERSION: v3.17.3
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The integration tests use this Mongo (TEST_MONGODB_URI) instead of starting their own with Testcontainers
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+    env:
+      TEST_MONGODB_URI: mongodb://localhost:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Build and test
+        run: |
+          # Release tags set the version; everything else builds the pom's SNAPSHOT version
+          REVISION_OPT=()
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then REVISION_OPT=("-Drevision=${GITHUB_REF_NAME#v}"); fi
+          ./mvnw -B "${REVISION_OPT[@]}" clean verify
+      - name: Coverage
+        if: always()
+        run: |
+          if [ -f target/site/jacoco/jacoco.csv ]; then
+            awk -F, 'NR>1 {m+=$8; c+=$9} END {printf "Line coverage: %.1f%%\n", 100*c/(m+c)}' \
+              target/site/jacoco/jacoco.csv | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/site/jacoco/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Lint and template
+        run: |
+          helm lint "$CHART_DIR"
+          helm lint "$CHART_DIR" -f "$CHART_DIR/ci-values.yaml"
+          helm template ci "$CHART_DIR" -f "$CHART_DIR/ci-values.yaml" > /dev/null
+
+  image:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Build and push the image (Jib)
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./mvnw -B "-Drevision=$VERSION" -DskipTests package jib:build \
+            "-Dimage=docker.io/$NAMESPACE/$IMAGE_NAME:v$VERSION" \
+            -Dimage.registry=docker.io "-Dimage.project=$NAMESPACE" "-Dimage.name=$IMAGE_NAME" \
+            "-Djib.to.tags=${GITHUB_SHA::8},latest" \
+            "-Dimage.revision=$GITHUB_SHA" \
+            "-Djib.to.auth.username=$DOCKERHUB_USERNAME" \
+            "-Djib.to.auth.password=$DOCKERHUB_TOKEN"
+
+  helm-publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [image, helm-lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Package and push the chart
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          echo "$DOCKERHUB_TOKEN" | helm registry login registry-1.docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+          VERSION="${GITHUB_REF_NAME#v}"
+          helm package "$CHART_DIR" --version "$VERSION" --app-version "v$VERSION" --destination dist
+          helm push dist/*.tgz "oci://registry-1.docker.io/$NAMESPACE"
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

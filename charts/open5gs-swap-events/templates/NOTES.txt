@@ -1,0 +1,12 @@
+{{ include "swap-events.fullname" . }} compares the Open5GS subscribers with swap_events every {{ .Values.config.pollInterval }}.
+The first pass creates a row for every existing subscriber.
+
+Watch the passes:
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "swap-events.fullname" . }} -f
+
+Health and metrics:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "swap-events.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl localhost:{{ .Values.service.port }}/actuator/health
+  curl -s localhost:{{ .Values.service.port }}/actuator/prometheus | grep swapchecks_
+
+Run exactly one instance: the chart pins replicas to 1.

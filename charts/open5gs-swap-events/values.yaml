@@ -1,0 +1,104 @@
+image:
+  repository: docker.io/pnetrepo/open5gs-swap-events
+  # Defaults to the chart's appVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+mongodb:
+  # Required, e.g. mongodb://mongodb:27017/open5gs. Leave empty only if MONGODB_URI comes from
+  # extraEnv or extraEnvFrom (for example a Secret). May be a template, so a chart that deploys Open5GS too can
+  # point it at its own MongoDB: "mongodb://{{ .Release.Name }}-mongodb:27017/open5gs".
+  uri: ""
+
+config:
+  # How long to wait between the end of one pass over the subscribers and the start of the next
+  pollInterval: 30s
+  # Liveness fails if no pass has finished for this long
+  stallTimeout: 10m
+  # ecs, logstash or gelf; empty for plain text
+  logFormat: ecs
+  logLevel: INFO
+  # Per shutdown phase; keep it below terminationGracePeriodSeconds
+  shutdownTimeout: 20s
+  javaToolOptions: "-XX:MaxRAMPercentage=75"
+  # Extra environment variables added to the configmap
+  extra: {}
+
+# Added to the container's env, which takes precedence over the configmap
+extraEnv: []
+# Added to the container's envFrom after the configmap, so these win on duplicate keys
+extraEnvFrom: []
+#  - secretRef:
+#      name: open5gs-mongodb-uri
+
+# Each pass holds swap_events in memory; this is plenty for tens of thousands of subscribers
+resources:
+  requests:
+    cpu: 100m
+    memory: 320Mi
+  limits:
+    memory: 512Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+probes:
+  startup:
+    httpGet:
+      path: /actuator/health/liveness
+      port: http
+    periodSeconds: 5
+    failureThreshold: 30
+  liveness:
+    httpGet:
+      path: /actuator/health/liveness
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    httpGet:
+      path: /actuator/health/readiness
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+
+terminationGracePeriodSeconds: 30
+
+# ClusterIP for metrics only: the service takes no traffic
+service:
+  port: 8080
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+serviceAccount:
+  create: true
+  # Defaults to the fullname when create is true, and to "default" otherwise
+  name: ""
+  annotations: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

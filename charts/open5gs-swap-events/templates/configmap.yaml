@@ -1,0 +1,21 @@
+{{- include "swap-events.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "swap-events.fullname" . }}
+  labels:
+    {{- include "swap-events.labels" . | nindent 4 }}
+data:
+  {{- with .Values.mongodb.uri }}
+  MONGODB_URI: {{ tpl . $ | quote }}
+  {{- end }}
+  SERVER_PORT: "8080"
+  POLL_INTERVAL: {{ .Values.config.pollInterval | quote }}
+  STALL_TIMEOUT: {{ .Values.config.stallTimeout | quote }}
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  SHUTDOWN_TIMEOUT: {{ .Values.config.shutdownTimeout | quote }}
+  JAVA_TOOL_OPTIONS: {{ .Values.config.javaToolOptions | quote }}
+  {{- range $key, $value := .Values.config.extra }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

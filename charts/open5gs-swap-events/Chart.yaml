@@ -1,0 +1,9 @@
+apiVersion: v2
+# <name>-chart: helm push names the Docker Hub repository after the chart, so the chart doesn't land in the image's
+# repository (pnetrepo/open5gs-swap-events). Kubernetes resources drop the suffix (open5gs-swap-events.name).
+name: open5gs-swap-events-chart
+description: Keeps the swap_events collection (last IMSI and IMEISV change per MSISDN) in sync with the Open5GS subscribers
+type: application
+# CI sets both from the release tag: helm package --version X.Y.Z --app-version vX.Y.Z
+version: 1.0.0
+appVersion: "v1.0.0"

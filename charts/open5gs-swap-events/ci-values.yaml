@@ -1,0 +1,56 @@
+# Turns on every optional part of the chart so helm lint and helm template cover it
+mongodb:
+  uri: mongodb://mongodb:27017/open5gs
+
+image:
+  tag: v0.0.0-ci
+
+imagePullSecrets:
+  - name: registry-pull
+
+config:
+  extra:
+    SPRING_MAIN_BANNER_MODE: "off"
+
+extraEnv:
+  - name: EXAMPLE_EXTRA_ENV
+    value: "1"
+
+extraEnvFrom:
+  - secretRef:
+      name: open5gs-mongodb-uri
+
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus
+
+serviceAccount:
+  annotations:
+    example.com/owner: tep
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: core
+    effect: NoSchedule
+
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+            - key: kubernetes.io/arch
+              operator: In
+              values:
+                - amd64
+
+podAnnotations:
+  example.com/scrape: "true"
+
+podLabels:
+  team: tep

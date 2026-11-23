@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.1.2</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>gr.pnet</groupId>
+	<artifactId>open5gs-swap-events</artifactId>
+	<version>${revision}</version>
+	<name>open5gs-swap-events</name>
+	<description>Keeps the swap_events collection (last IMSI and IMEISV change per MSISDN) in sync with the Open5GS subscribers collection</description>
+
+	<properties>
+		<java.version>17</java.version>
+		<revision>1.0.0-SNAPSHOT</revision>
+		<start-class>gr.pnet.open5gs.swapevents.Open5gsSwapEventsApplication</start-class>
+
+		<!-- Local builds only: CI sets the whole target with -Dimage and the commit with -Dimage.revision -->
+		<image.registry>docker.io</image.registry>
+		<image.project>pnetrepo</image.project>
+		<image.name>open5gs-swap-events</image.name>
+		<image.revision>unknown</image.revision>
+
+		<flatten-maven-plugin.version>1.8.0</flatten-maven-plugin.version>
+		<jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
+		<jib-maven-plugin.version>3.5.2</jib-maven-plugin.version>
+		<jib-spring-boot-extension.version>0.1.0</jib-spring-boot-extension.version>
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-mongodb</artifactId>
+		</dependency>
+		<!-- Only serves actuator -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<scope>provided</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Integration tests start Mongo with Testcontainers unless TEST_MONGODB_URI is set (CI) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-mongodb</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>${lombok.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>flatten-maven-plugin</artifactId>
+				<version>${flatten-maven-plugin.version}</version>
+				<configuration>
+					<updatePomFile>true</updatePomFile>
+					<flattenMode>resolveCiFriendliesOnly</flattenMode>
+				</configuration>
+				<executions>
+					<execution>
+						<id>flatten</id>
+						<phase>process-resources</phase>
+						<goals>
+							<goal>flatten</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>flatten-clean</id>
+						<phase>clean</phase>
+						<goals>
+							<goal>clean</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Runs *IT classes; executions come from spring-boot-starter-parent -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco-maven-plugin.version}</version>
+				<executions>
+					<!-- Sets argLine for both surefire and failsafe; both append to target/jacoco.exec -->
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>com.google.cloud.tools</groupId>
+				<artifactId>jib-maven-plugin</artifactId>
+				<version>${jib-maven-plugin.version}</version>
+				<dependencies>
+					<dependency>
+						<groupId>com.google.cloud.tools</groupId>
+						<artifactId>jib-spring-boot-extension-maven</artifactId>
+						<version>${jib-spring-boot-extension.version}</version>
+					</dependency>
+				</dependencies>
+				<configuration>
+					<from>
+						<image>eclipse-temurin:17-jre</image>
+					</from>
+					<to>
+						<image>${image.registry}/${image.project}/${image.name}:v${revision}</image>
+					</to>
+					<container>
+						<user>10001:10001</user>
+						<ports>
+							<port>8080</port>
+						</ports>
+						<creationTime>USE_CURRENT_TIMESTAMP</creationTime>
+						<labels>
+							<!-- Replaces the base image's value -->
+							<org.opencontainers.image.created>${maven.build.timestamp}</org.opencontainers.image.created>
+							<org.opencontainers.image.title>${project.name}</org.opencontainers.image.title>
+							<org.opencontainers.image.description>${project.description}</org.opencontainers.image.description>
+							<org.opencontainers.image.version>${revision}</org.opencontainers.image.version>
+							<org.opencontainers.image.revision>${image.revision}</org.opencontainers.image.revision>
+							<org.opencontainers.image.vendor>gr.pnet</org.opencontainers.image.vendor>
+						</labels>
+					</container>
+					<pluginExtensions>
+						<pluginExtension>
+							<implementation>com.google.cloud.tools.jib.maven.extension.springboot.JibSpringBootExtension</implementation>
+						</pluginExtension>
+					</pluginExtensions>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
